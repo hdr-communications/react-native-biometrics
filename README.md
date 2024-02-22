@@ -1,7 +1,19 @@
 
-# Généation du build après installation
+# Installation version KD
 
 ```
+yarn add https://github.com/hdr-communications/react-native-biometrics
+cd node_modules/react-native-biometrics
+npm install -g tsc
+npm run build:cjs
+npm run build:esm
+cd ../..
+```
+
+## Mise à jour (après déploiement nouvelle version)
+
+```
+yarn upgrade react-native-biometrics
 cd node_modules/react-native-biometrics
 npm install -g tsc
 npm run build:cjs
