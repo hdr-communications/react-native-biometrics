@@ -98,7 +98,9 @@ public class ReactNativeBiometrics extends ReactContextBaseJavaModule {
         try {
             if (isCurrentSDKMarshmallowOrLater()) {
                 deleteBiometricKey();
-                boolean strongAuth = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG);
+                ReactApplicationContext reactApplicationContext = getReactApplicationContext();
+                BiometricManager biometricManager = BiometricManager.from(reactApplicationContext);
+                boolean strongAuth = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS;
                 KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore");
                 KeyGenParameterSpec keyGenParameterSpec = new KeyGenParameterSpec.Builder(biometricKeyAlias, KeyProperties.PURPOSE_SIGN)
                         .setDigests(KeyProperties.DIGEST_SHA256)
