@@ -4,6 +4,7 @@ import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
+import android.util.Log;
 
 import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
@@ -24,11 +25,14 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.PrivateKey;
+import java.security.Provider;
 import java.security.PublicKey;
+import java.security.Security;
 import java.security.Signature;
 import java.security.spec.RSAKeyGenParameterSpec;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import org.conscrypt.Conscrypt;
 
 /**
  * Created by brandon on 4/5/18.
@@ -50,6 +54,23 @@ public class ReactNativeBiometrics extends ReactContextBaseJavaModule {
     @ReactMethod
     public void isSensorAvailable(final ReadableMap params, final Promise promise) {
         try {
+            Security.insertProviderAt(Conscrypt.newProvider(), 1);
+
+//            StringBuilder builder = new StringBuilder();
+//            for (Provider provider : Security.getProviders()) {
+//                builder.append("provider: ")
+//                        .append(provider.getName())
+//                        .append(" ")
+//                        .append(provider.getVersion())
+//                        .append("(")
+//                        .append(provider.getInfo())
+//                        .append(")\n");
+//            }
+//            String providers = builder.toString();
+//            Log.d("Providers", providers);
+
+
+
             if (isCurrentSDKMarshmallowOrLater()) {
                 boolean allowDeviceCredentials = params.getBoolean("allowDeviceCredentials");
                 ReactApplicationContext reactApplicationContext = getReactApplicationContext();
@@ -58,12 +79,14 @@ public class ReactNativeBiometrics extends ReactContextBaseJavaModule {
 
                 if (canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS) {
                     WritableMap resultMap = new WritableNativeMap();
+//                    resultMap.putString("providers", providers);
                     resultMap.putBoolean("available", true);
                     resultMap.putString("biometryType", "Biometrics");
                     promise.resolve(resultMap);
                 } else {
                     WritableMap resultMap = new WritableNativeMap();
                     resultMap.putBoolean("available", false);
+//                    resultMap.putString("providers", providers);
 
                     switch (canAuthenticate) {
                         case BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE:
@@ -85,6 +108,7 @@ public class ReactNativeBiometrics extends ReactContextBaseJavaModule {
             } else {
                 WritableMap resultMap = new WritableNativeMap();
                 resultMap.putBoolean("available", false);
+//                resultMap.putString("providers", providers);
                 resultMap.putString("error", "Unsupported android version");
                 promise.resolve(resultMap);
             }
@@ -166,6 +190,8 @@ public class ReactNativeBiometrics extends ReactContextBaseJavaModule {
                                 Signature signature = Signature.getInstance("SHA256withRSA");
                                 KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
                                 keyStore.load(null);
+                                Log.d("Providers", "Utilisation du provider pour signer :");
+                                Log.d("Providers", signature.getProvider().getName());
 
                                 PrivateKey privateKey = (PrivateKey) keyStore.getKey(biometricKeyAlias, null);
                                 signature.initSign(privateKey);
