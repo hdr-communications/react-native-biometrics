@@ -99,6 +99,42 @@ RCT_EXPORT_METHOD(createKeys: (NSDictionary *)params resolver:(RCTPromiseResolve
   });
 }
 
+RCT_EXPORT_METHOD(createFallbackKeys: (int)keySize resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+  dispatch_async(dispatch_get_global_queue( DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+
+    NSData *biometricKeyTag = [self getBiometricFallbackKeyTag];
+    NSDictionary *keyAttributes = @{
+                                    (id)kSecClass: (id)kSecClassKey,
+                                    (id)kSecAttrKeyType: (id)kSecAttrKeyTypeRSA,
+                                    (id)kSecAttrKeySizeInBits: @2048,
+                                    (id)kSecPrivateKeyAttrs: @{
+                                        (id)kSecAttrIsPermanent: @YES,
+                                        (id)kSecAttrApplicationTag: biometricKeyTag
+                                        }
+                                    };
+
+    [self deleteBiometricFallbackKey];
+    NSError *gen_error = nil;
+    id privateKey = CFBridgingRelease(SecKeyCreateRandomKey((__bridge CFDictionaryRef)keyAttributes, (void *)&gen_error));
+
+    if(privateKey != nil) {
+      id publicKey = CFBridgingRelease(SecKeyCopyPublicKey((SecKeyRef)privateKey));
+      CFDataRef publicKeyDataRef = SecKeyCopyExternalRepresentation((SecKeyRef)publicKey, nil);
+      NSData *publicKeyData = (__bridge NSData *)publicKeyDataRef;
+      NSData *publicKeyDataWithHeader = [self addHeaderPublickey:publicKeyData];
+      NSString *publicKeyString = [publicKeyDataWithHeader base64EncodedStringWithOptions:0];
+
+      NSDictionary *result = @{
+        @"publicKey": publicKeyString,
+      };
+      resolve(result);
+    } else {
+      NSString *message = [NSString stringWithFormat:@"Key generation error: %@", gen_error];
+      reject(@"storage_error", message, nil);
+    }
+  });
+}
+
 RCT_EXPORT_METHOD(deleteKeys: (RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
   dispatch_async(dispatch_get_global_queue( DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
     BOOL biometricKeyExists = [self doesBiometricKeyExist];
@@ -136,6 +172,49 @@ RCT_EXPORT_METHOD(createSignature: (NSDictionary *)params resolver:(RCTPromiseRe
                             (id)kSecAttrKeyType: (id)kSecAttrKeyTypeRSA,
                             (id)kSecReturnRef: @YES,
                             (id)kSecUseOperationPrompt: promptMessage
+                            };
+    SecKeyRef privateKey;
+    OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&privateKey);
+
+    if (status == errSecSuccess) {
+      NSError *error;
+      NSData *dataToSign = [payload dataUsingEncoding:NSUTF8StringEncoding];
+      NSData *signature = CFBridgingRelease(SecKeyCreateSignature(privateKey, kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256, (CFDataRef)dataToSign, (void *)&error));
+
+      if (signature != nil) {
+        NSString *signatureString = [signature base64EncodedStringWithOptions:0];
+        NSDictionary *result = @{
+          @"success": @(YES),
+          @"signature": signatureString
+        };
+        resolve(result);
+      } else if (error.code == errSecUserCanceled) {
+        NSDictionary *result = @{
+          @"success": @(NO),
+          @"error": @"User cancellation"
+        };
+        resolve(result);
+      } else {
+        NSString *message = [NSString stringWithFormat:@"Signature error: %@", error];
+        reject(@"signature_error", message, nil);
+      }
+    } else {
+      NSString *message = [NSString stringWithFormat:@"Key not found: %@",[self keychainErrorToString:status]];
+      reject(@"storage_error", message, nil);
+    }
+  });
+}
+
+RCT_EXPORT_METHOD(createFallbackSignature: (NSString *)message resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    NSString *payload = [[NSString alloc] initWithString:message];;
+
+    NSData *biometricKeyTag = [self getBiometricFallbackKeyTag];
+    NSDictionary *query = @{
+                            (id)kSecClass: (id)kSecClassKey,
+                            (id)kSecAttrApplicationTag: biometricKeyTag,
+                            (id)kSecAttrKeyType: (id)kSecAttrKeyTypeRSA,
+                            (id)kSecReturnRef: @YES
                             };
     SecKeyRef privateKey;
     OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&privateKey);
@@ -223,8 +302,42 @@ RCT_EXPORT_METHOD(biometricKeysExist: (RCTPromiseResolveBlock)resolve rejecter:(
   });
 }
 
+RCT_EXPORT_METHOD(biometricFallbackKeysExist: (RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+  dispatch_async(dispatch_get_global_queue( DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+
+    NSData *biometricKeyTag = [self getBiometricFallbackKeyTag];
+    NSDictionary *searchQuery = @{
+                                  (id)kSecClass: (id)kSecClassKey,
+                                  (id)kSecAttrApplicationTag: biometricKeyTag,
+                                  (id)kSecAttrKeyType: (id)kSecAttrKeyTypeRSA,
+                                  (id)kSecUseAuthenticationUI: (id)kSecUseAuthenticationUIFail
+                                  };
+
+    OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)searchQuery, nil);
+    BOOL biometricKeyExists = status == errSecSuccess || status == errSecInteractionNotAllowed;
+
+    if (biometricKeyExists) {
+      NSDictionary *result = @{
+        @"keysExist": @(YES)
+      };
+      resolve(result);
+    } else {
+      NSDictionary *result = @{
+        @"keysExist": @(NO)
+      };
+      resolve(result);
+    }
+  });
+}
+
 - (NSData *) getBiometricKeyTag {
   NSString *biometricKeyAlias = @"com.rnbiometrics.biometricKey";
+  NSData *biometricKeyTag = [biometricKeyAlias dataUsingEncoding:NSUTF8StringEncoding];
+  return biometricKeyTag;
+}
+
+- (NSData *) getBiometricFallbackKeyTag {
+  NSString *biometricKeyAlias = @"com.rnbiometrics.biometricKeyFallback";
   NSData *biometricKeyTag = [biometricKeyAlias dataUsingEncoding:NSUTF8StringEncoding];
   return biometricKeyTag;
 }
@@ -244,6 +357,18 @@ RCT_EXPORT_METHOD(biometricKeysExist: (RCTPromiseResolveBlock)resolve rejecter:(
 
 -(OSStatus) deleteBiometricKey {
   NSData *biometricKeyTag = [self getBiometricKeyTag];
+  NSDictionary *deleteQuery = @{
+                                (id)kSecClass: (id)kSecClassKey,
+                                (id)kSecAttrApplicationTag: biometricKeyTag,
+                                (id)kSecAttrKeyType: (id)kSecAttrKeyTypeRSA
+                                };
+
+  OSStatus status = SecItemDelete((__bridge CFDictionaryRef)deleteQuery);
+  return status;
+}
+
+-(OSStatus) deleteBiometricFallbackKey {
+  NSData *biometricKeyTag = [self getBiometricFallbackKeyTag];
   NSDictionary *deleteQuery = @{
                                 (id)kSecClass: (id)kSecClassKey,
                                 (id)kSecAttrApplicationTag: biometricKeyTag,

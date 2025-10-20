@@ -20,6 +20,10 @@ interface IsSensorAvailableResult {
 interface CreateKeysResult {
   publicKey: string
 }
+interface CreateKeysFallbackResult {
+  public: string
+  private: string
+}
 
 interface BiometricKeysExistResult {
   keysExist: boolean
@@ -88,6 +92,26 @@ export module ReactNativeBiometricsLegacy {
   export function createKeys(): Promise<CreateKeysResult> {
     return new ReactNativeBiometrics().createKeys()
   }
+
+  /**
+   * Creates a public private key pair,returns promise that resolves to
+   * an object with object.publicKey, which is the public key of the newly generated key pair
+   * @returns {Promise<Object>}  Promise that resolves to object with details about the newly generated public key
+   */
+  export function createFallbackKeys(): Promise<CreateKeysFallbackResult> {
+    return new ReactNativeBiometrics().createFallbackKeys()
+  }
+
+  /**
+   * Creates a public private key pair,returns promise that resolves to
+   * an object with object.publicKey, which is the public key of the newly generated key pair
+   * @returns {Promise<Object>}  Promise that resolves to object with details about the newly generated public key
+   */
+  export function createFallbackSignature(message: string): Promise<string> {
+    return new ReactNativeBiometrics().createFallbackSignature(message);
+  }
+
+
 
   /**
    * Returns promise that resolves to an object with object.keysExists = true | false
@@ -168,12 +192,30 @@ export default class ReactNativeBiometrics {
     }
 
     /**
+     * Creates a public private key pair,returns promise that resolves to
+     * an object with object.publicKey, which is the public key of the newly generated key pair
+     * @returns {Promise<Object>}  Promise that resolves to object with details about the newly generated public key
+     */
+    createFallbackKeys(): Promise<CreateKeysFallbackResult> {
+      return bridge.createFallbackKeys(1024)
+    }
+
+    /**
      * Returns promise that resolves to an object with object.keysExists = true | false
      * indicating if the keys were found to exist or not
      * @returns {Promise<Object>} Promise that resolves to object with details aobut the existence of keys
      */
     biometricKeysExist(): Promise<BiometricKeysExistResult> {
       return bridge.biometricKeysExist()
+    }
+
+    /**
+     * Returns promise that resolves to an object with object.keysExists = true | false
+     * indicating if the keys were found to exist or not
+     * @returns {Promise<Object>} Promise that resolves to object with details aobut the existence of keys
+     */
+    biometricFallbackKeysExist(): Promise<BiometricKeysExistResult> {
+      return bridge.biometricFallbackKeysExist()
     }
 
     /**
@@ -202,6 +244,16 @@ export default class ReactNativeBiometrics {
         ...createSignatureOptions
       })
     }
+
+    /**
+     * Creates a public private key pair,returns promise that resolves to
+     * an object with object.publicKey, which is the public key of the newly generated key pair
+     * @returns {Promise<Object>}  Promise that resolves to object with details about the newly generated public key
+     */
+    createFallbackSignature(message: string): Promise<string> {
+      return bridge.createFallbackSignature(message)
+    }
+
 
     /**
      * Prompts user with biometrics dialog using the passed in prompt message and

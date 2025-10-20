@@ -21,6 +21,7 @@ import com.facebook.react.bridge.UiThreadUtil;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.bridge.WritableNativeMap;
 
+import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
@@ -30,9 +31,11 @@ import java.security.PublicKey;
 import java.security.Security;
 import java.security.Signature;
 import java.security.spec.RSAKeyGenParameterSpec;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import org.conscrypt.Conscrypt;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 /**
  * Created by brandon on 4/5/18.
@@ -41,6 +44,7 @@ import org.conscrypt.Conscrypt;
 public class ReactNativeBiometrics extends ReactContextBaseJavaModule {
 
     protected String biometricKeyAlias = "biometric_key";
+    protected String biometricKeyFallbackAlias = "biometric_fallback_key";
 
     public ReactNativeBiometrics(ReactApplicationContext reactContext) {
         super(reactContext);
@@ -151,6 +155,37 @@ public class ReactNativeBiometrics extends ReactContextBaseJavaModule {
         }
     }
 
+    @ReactMethod
+    public void createFallbackKeys(final int keySize, Promise promise) {
+        try {
+            if (isCurrentSDKMarshmallowOrLater()) {
+                deleteBiometricFallbackKey();
+                KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore");
+                KeyGenParameterSpec keyGenParameterSpec = new KeyGenParameterSpec.Builder(biometricKeyFallbackAlias, KeyProperties.PURPOSE_SIGN)
+                        .setDigests(KeyProperties.DIGEST_SHA256)
+                        .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
+                        .setAlgorithmParameterSpec(new RSAKeyGenParameterSpec(2048, RSAKeyGenParameterSpec.F4))
+                        .setUserAuthenticationRequired(false)
+                        .build();
+                keyPairGenerator.initialize(keyGenParameterSpec);
+
+                KeyPair keyPair = keyPairGenerator.generateKeyPair();
+                PublicKey publicKey = keyPair.getPublic();
+                byte[] encodedPublicKey = publicKey.getEncoded();
+                String publicKeyString = Base64.encodeToString(encodedPublicKey, Base64.DEFAULT);
+                publicKeyString = publicKeyString.replaceAll("\r", "").replaceAll("\n", "");
+
+                WritableMap resultMap = new WritableNativeMap();
+                resultMap.putString("publicKey", publicKeyString);
+                promise.resolve(resultMap);
+            } else {
+                promise.reject("Cannot generate keys on android versions below 6.0", "Cannot generate keys on android versions below 6.0");
+            }
+        } catch (Exception e) {
+            promise.reject("Error generating public private keys: " + e.getMessage(), "Error generating public private keys");
+        }
+    }
+
     private boolean isCurrentSDKMarshmallowOrLater() {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.M;
     }
@@ -209,6 +244,35 @@ public class ReactNativeBiometrics extends ReactContextBaseJavaModule {
                             }
                         }
                     });
+        } else {
+            promise.reject("Cannot generate keys on android versions below 6.0", "Cannot generate keys on android versions below 6.0");
+        }
+    }
+
+    @ReactMethod
+    public void createFallbackSignature(final String message, final Promise promise) {
+        if (isCurrentSDKMarshmallowOrLater()) {
+            UiThreadUtil.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        byte[] messageBytes = message.getBytes();
+
+                        Signature signature = Signature.getInstance("SHA256withRSA");
+                        KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
+                        keyStore.load(null);
+
+                        PrivateKey privateKey = (PrivateKey) keyStore.getKey(biometricKeyFallbackAlias, null);
+                        signature.initSign(privateKey);
+                        signature.update(messageBytes);
+                        byte[] signed = signature.sign();
+                        String encodedResponse =  Base64.encodeToString(signed, Base64.NO_WRAP);
+                        promise.resolve(encodedResponse);
+                    } catch (Exception e) {
+                        promise.reject("Error signing payload: " + e.getMessage(), "Error generating signature: " + e.getMessage());
+                    }
+                }
+            });
         } else {
             promise.reject("Cannot generate keys on android versions below 6.0", "Cannot generate keys on android versions below 6.0");
         }
@@ -277,6 +341,21 @@ public class ReactNativeBiometrics extends ReactContextBaseJavaModule {
         }
     }
 
+    @ReactMethod
+    public void biometricFallbackKeysExist(Promise promise) {
+        try {
+            KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
+            keyStore.load(null);
+
+            boolean doesBiometricKeyExist = keyStore.containsAlias(biometricKeyFallbackAlias);
+            WritableMap resultMap = new WritableNativeMap();
+            resultMap.putBoolean("keysExist", doesBiometricKeyExist);
+            promise.resolve(resultMap);
+        } catch (Exception e) {
+            promise.reject("Error checking if biometric key exists: " + e.getMessage(), "Error checking if biometric key exists: " + e.getMessage());
+        }
+    }
+
     protected boolean doesBiometricKeyExist() {
         try {
             KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
@@ -294,6 +373,18 @@ public class ReactNativeBiometrics extends ReactContextBaseJavaModule {
             keyStore.load(null);
 
             keyStore.deleteEntry(biometricKeyAlias);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    protected boolean deleteBiometricFallbackKey() {
+        try {
+            KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
+            keyStore.load(null);
+
+            keyStore.deleteEntry(biometricKeyFallbackAlias);
             return true;
         } catch (Exception e) {
             return false;
