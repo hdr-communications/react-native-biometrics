@@ -34,7 +34,7 @@ import java.security.spec.RSAKeyGenParameterSpec;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
-import org.conscrypt.Conscrypt;
+// import org.conscrypt.Conscrypt;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 /**
@@ -58,7 +58,7 @@ public class ReactNativeBiometrics extends ReactContextBaseJavaModule {
     @ReactMethod
     public void isSensorAvailable(final ReadableMap params, final Promise promise) {
         try {
-            Security.insertProviderAt(Conscrypt.newProvider(), 1);
+            // Security.insertProviderAt(Conscrypt.newProvider(), 1);
 
 //            StringBuilder builder = new StringBuilder();
 //            for (Provider provider : Security.getProviders()) {
